@@ -15,8 +15,9 @@ from pywsd.similarity import max_similarity as maxsim
 from pywsd import disambiguate
 import pickle
 from stanford_parser.parser import Parser  
+from py2neo.server import GraphServer
 app = Flask(__name__)
-print(__name__+' >>')
+NEO4J_SERVER_DIST_PATH='/home/snehal/Downloads/neo4j-community-2.2.3/'
 
 @app.route("/find_tags/<sentence>")
 def tag(sentence):
@@ -308,19 +309,50 @@ def convert(corpus_to_use):
         print('Not able to insert the raw comment details. Is it important? ')
 
 
+def start_neo(db_dump_location='graph.db'):
+    try:
+        server = GraphServer(NEO4J_SERVER_DIST_PATH)
+    except:
+        print(traceback.format_exc())    
+        print('Could not find and initialize the neo4j server')
+    try:
+        # set the name of the graph db dump location
+        print db_dump_location
+        server.update_server_properties(database_location=db_dump_location)
+    except:
+        print(traceback.format_exc())    
+        print('Some issue in setting the db dump location. Defaulting to '+str(server.conf.get('neo4j-server','org.neo4j.server.database.location')))
+    try:
+        server.start()
+        print str(server.pid) + ' PIDDDDDD   ' 
+        print server.conf.get('neo4j-server','org.neo4j.server.database.location')
+    except:
+        print(traceback.format_exc())    
+        print('error in starting')
+def stop_neo():
+    try:
+        server = GraphServer(NEO4J_SERVER_DIST_PATH)
+    except:
+        print(traceback.format_exc())    
+        print('Could not find and initialize the neo4j server')
+    try:
+        server.stop()
+    except:
+        print(traceback.format_exc())    
+        print('error in stoping')
 
 def connect_to_neo(endpoint=None):
     graph= False
     try:
         if endpoint==None:
-            graph= Graph("http://neo4j:441989@45.55.220.39:7474/db/data/")
+            graph= Graph("http://neo4j:441989@localhost:7474/db/data/")
             try:
                 graph.schema.create_uniqueness_constraint("word", "name") 
             except:
                 print('The uniqueness constraint already exists.')
             return graph
         else :
-            graph= Graph("http://neo4j:441989@45.55.220.39:7474"+str(endpoint))
+            graph= Graph("http://neo4j:441989@localhost:7474"+str(endpoint))
             try:
                 graph.schema.create_uniqueness_constraint("word", "name") 
             except:
@@ -353,6 +385,8 @@ def connect_to_rethinkdb():
 @app.route("/add_examples/<corpus_to_use>")
 def add_examples(corpus_to_use):
     print("Converting")
+    stop_neo()
+    start_neo('/home/snehal/data/graphwithexamples.db')
     graph=connect_to_neo()
     print(' The graph '+str(graph))
     dict_of_words={}
@@ -398,27 +432,29 @@ def add_examples(corpus_to_use):
         
         
 
-
-@app.route("/add_examples_to_new_graph/<corpus_to_use>")
-def add_examples_to_new_graph(corpus_to_use):
+@app.route("/add_example_sentences/<corpus_to_use>")
+def add_example_sentences(corpus_to_use):
     print("Converting")
-    graph=connect_to_neo()
-    print(' The graph '+str(graph))
-    dict_of_words={}
-    name =str(corpus_to_use)
-    package = "nltk.corpus"
+#    stop_neo()
+#    start_neo('/home/snehal/data/examplesentencesgraph.db')
     try:
+        graph=connect_to_neo()
+        print(' The graph '+str(graph))
+        dict_of_words={}
+        name =str(corpus_to_use)
+        package = "nltk.corpus"
         imported = getattr(__import__(package, fromlist=[name]), name)
         tokenized_corpus=list(imported.words())
         sentences=imported.sents()
         index=0
         bigrams=ngrams(tokenized_corpus,2)
         freq_dist_bigrams=nltk.FreqDist(bigrams)
-        
+        print 'about to iterate'        
         for sentence in sentences:
-            if index < 1989:
-                index=index+1
-                continue
+        
+#            if index <57340:
+#                index=index+1
+#                continue
             words = sentence
             text=' '.join(sentence) 
             tagged_sent = pos_tag(words)
@@ -426,21 +462,23 @@ def add_examples_to_new_graph(corpus_to_use):
             if index%1000 ==0:
                 print text
             prev=None
+            orderi=0
             for word in words:
                 if word not in propernouns:
                     word=str.lower(str(word))            
                 q=r"merge (n:word {name:'"+word.replace("'","\\\'")+"'})"
                 graph.cypher.execute(q)
                 if prev is not None:
-                    q=r"match (n:word {name:'"+prev.replace("'","\\\'")+"'}),(m:word {name:'"+word.replace("'","\\\'")+"'})  merge (n)-[r:sentence {index:'"+str(index)+"', text:'"+text.replace("'","\\\'")+"', prob:'"+str(freq_dist_bigrams[(prev,word)])+"'}]->(m) return r"
+                    q=r"match (n:word {name:'"+prev.replace("'","\\\'")+"'}),(m:word {name:'"+word.replace("'","\\\'")+"'})  merge (n)-[r:sentence {index:'"+str(index+57340)+"', prob:'"+str(freq_dist_bigrams[(prev,word)])+"',orderi:"+str(orderi)+"}]->(m) return r"
                     result=graph.cypher.execute(q)
+                    orderi=orderi+1
                 prev=word
-            index=index+1                                
-
-
+            index=index+1
+        return jsonify({'Completion':'Success'})     
     except:
         print ('Some error in the add_examples API method')   
-        print(traceback.format_exc())                                     
+        print(traceback.format_exc())                         
+        return jsonify({'Completion':'Failure'})                 
                 
                 
                 
@@ -449,6 +487,7 @@ def add_examples_to_new_graph(corpus_to_use):
 @app.route("/add_syntdep_to_new_graph/<corpus_to_use>")
 def add_syntactic_dependencies_to_new_graph(corpus_to_use):
     print("Converting")
+    start_neo('/home/snehal/data/dependencygraph.db')
     graph=connect_to_neo()
     print(' The graph '+str(graph))
     dict_of_words={}
@@ -461,7 +500,7 @@ def add_syntactic_dependencies_to_new_graph(corpus_to_use):
         index=0
         parser=Parser()        
         for sentence in sentences:
-            if index <4000:
+            if index <3975:
                 index=index+1
                 continue
             words = sentence
@@ -491,17 +530,16 @@ def add_syntactic_dependencies_to_new_graph(corpus_to_use):
                 graph.cypher.execute(q)
                 q=r"merge (m:word {name:'"+e_word.replace("'","\\\'")+"'}) return m"
                 graph.cypher.execute(q)
-                q=r"match (n:word {name:'"+s_word.replace("'","\\\'")+"'})-[r:dependency {type:'"+str(dependency_type)+"'}]->(m:word {name:'"+e_word.replace("'","\\\'")+"'})   return r"
+                q=r"match (n:word {name:'"+s_word.replace("'","\\\'")+"'})-[r:dependency {type:'"+str(dependency_type).replace("'","\\\'")+"'}]->(m:word {name:'"+e_word.replace("'","\\\'")+"'})   return r"
                 result=graph.cypher.execute(q)
 #                print result 
                 if result is not None and len(result)>0:
                     print str(index)+' >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>><<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'
-                    q=r"match (n:word {name:'"+s_word.replace("'","\\\'")+"'}),(m:word {name:'"+e_word.replace("'","\\\'")+"'})  merge (n)-[r:dependency {type:'"+str(dependency_type)+"'}]->(m) with r.index as ri,r set r.index=['"+str(index)+"']+ri return r"
+                    q=r"match (n:word {name:'"+s_word.replace("'","\\\'")+"'}),(m:word {name:'"+e_word.replace("'","\\\'")+"'})  merge (n)-[r:dependency {type:'"+str(dependency_type).replace("'","\\\'")+"'}]->(m) with r.index as ri,r set r.index=['"+str(index)+"']+ri return r"
                     graph.cypher.execute(q)
                 else:
-                    q=r"match (n:word {name:'"+s_word.replace("'","\\\'")+"'}),(m:word {name:'"+e_word.replace("'","\\\'")+"'})  merge (n)-[r:dependency {type:'"+str(dependency_type)+"'}]->(m) set r.index=['"+str(index)+"'] return r"
+                    q=r"match (n:word {name:'"+s_word.replace("'","\\\'")+"'}),(m:word {name:'"+e_word.replace("'","\\\'")+"'})  merge (n)-[r:dependency {type:'"+str(dependency_type).replace("'","\\\'")+"'}]->(m) set r.index=['"+str(index)+"'] return r"
                     graph.cypher.execute(q)
-                        
             index=index+1                                
 
 
@@ -510,9 +548,239 @@ def add_syntactic_dependencies_to_new_graph(corpus_to_use):
         print(traceback.format_exc())                                     
                 
                 
+
+
+@app.route("/create_sense_graph/<corpus_to_use>")
+def create_sense_graph(corpus_to_use):
+    print("Converting")
+    graph=connect_to_neo()
+    print(' The graph '+str(graph))
+    dict_of_words={}
+    name =str(corpus_to_use)
+    package = "nltk.corpus"
+    try:
+        imported = getattr(__import__(package, fromlist=[name]), name)
+        list_of_words=[]
+        tokenized_corpus=list(imported.words())
+        print(str(len(tokenized_corpus)))
+        bigrams=ngrams(tokenized_corpus,2)
+        freq_dist_bigrams=nltk.FreqDist(bigrams)
+        i=0
+        tokenized_corpus=['name_and_address']
+        set_tokenized_corpus=set()
+        set_tokenized_corpus_add=set_tokenized_corpus.add
+        for word in tokenized_corpus:
+            #tokenized_corpus=[ x for x in tokenized_corpus if not (x in seen or set_tokenized_corpus_add(x))]
+            with open('/home/snehal/wordlist','a') as wordlist:
+                wordlist.write(word+"\n")
+            if True:
+                #list_of_words.add(word)
+                dict_of_words={}
+                dict_of_words["word"]=word
+                dict_of_words["senses"]=[]
+# For neo4j
+                for synset in wn.synsets(word):
+                    definition=synset.definition()
+                    q=r"merge(n:sense {definition:'"+definition.replace("'","\\\'")+"'}) return n"
+                    graph.cypher.execute(q)
+                    
+                    for lemma in synset.lemmas():
+                        if lemma.name() not in tokenized_corpus:
+                            tokenized_corpus.append(lemma.name())
+                        q=r"merge(n:word {name:'"+lemma.name().replace("'","\\\'")+"'}) with n merge(m:sense {definition:'"+definition.replace("'","\\\'")+"'}) merge (n)-[r:synonym {strength:"+str(0)+"}]->(m) return r"
+                        graph.cypher.execute(q)
+                        if lemma.name() == word:
+                            dforms=lemma.derivationally_related_forms()
+                            for dform in dforms:
+                                dform_word=dform.name()
+                                if dform_word not in tokenized_corpus:
+                                    tokenized_corpus.append(dform_word)
+                                dform_definition=dform.synset().definition()
+                                q=r"merge(n:sense {definition:'"+dform_definition.replace("'","\\\'")+"'}) with n merge(m:word {name:'"+dform_word.replace("'","\\\'")+"'}) merge (m)-[r:synonym {strength:"+str(0)+"}]->(n) return r"
+                                graph.cypher.execute(q)
+                                q=r"match(n:word {name:'"+dform_word.replace("'","\\\'")+"'}) with n merge(m:word {name:'"+lemma.name().replace("'","\\\'")+"'}) merge (m)-[r:derivation {strength:"+str(0)+"}]->(n) return r"
+                                graph.cypher.execute(q)
+                                                    
+                        antonyms_of_lemma=lemma.antonyms()
+                        if lemma.name() == word and len(antonyms_of_lemma) > 0:
+                            for ant in antonyms_of_lemma:
+                                ant_word=ant.name()
+                                ant_definition=ant.synset().definition()
+                                q=r"merge(n:sense {definition:'"+ant_definition.replace("'","\\\'")+"'}) with n merge(m:word {name:'"+ant_word.replace("'","\\\'")+"'}) merge (m)-[r:synonym {strength:"+str(0)+"}]->(n) return r"
+                                graph.cypher.execute(q)
+                                q=r"match(n:word {name:'"+ant_word.replace("'","\\\'")+"'}) with n merge(m:word {name:'"+word.replace("'","\\\'")+"'}) merge (m)-[r:antonym {strength:"+str(0)+"}]->(n) return r"
+                                graph.cypher.execute(q)
+                                if ant_word not in tokenized_corpus:
+                                    tokenized_corpus.append(ant_word)
+                                
+                    hypernyms=synset.hypernyms()
+                    for hypernym in hypernyms:
+                        hypernym_definition=hypernym.definition()
+                        q=r"merge(n:sense {definition:'"+hypernym_definition.replace("'","\\\'")+"'}) with n merge(m:sense {definition:'"+synset.definition().replace("'","\\\'")+"'}) with n,m merge (n)-[r:hypernym {strength:"+str(0)+"}]->(m) return r"
+                        graph.cypher.execute(q)
+                        hypernym_names=hypernym.lemma_names()
+                        for l in hypernym_names:
+                            if l not in tokenized_corpus:
+                                tokenized_corpus.append(l)
+
+                    entailments=synset.entailments()
+                    for entailment in entailments:
+                        entailment_definition=entailment.definition()
+                        q=r"merge(n:sense {definition:'"+entailment_definition.replace("'","\\\'")+"'}) with n merge(m:sense {definition:'"+synset.definition().replace("'","\\\'")+"'}) with n,m merge (n)-[r:entailment {strength:"+str(0)+"}]->(m) return r"
+                        graph.cypher.execute(q)
+                        entailment_names=entailment.lemma_names()
+                        for l in entailment_names:
+                            if l not in tokenized_corpus:
+                                tokenized_corpus.append(l)
+
+                    part_holonyms=synset.part_holonyms()
+                    for part_holonym in part_holonyms:
+                        part_holonym_definition=part_holonym.definition()
+                        q=r"merge(n:sense {definition:'"+part_holonym_definition.replace("'","\\\'")+"'}) with n merge(m:sense {definition:'"+synset.definition().replace("'","\\\'")+"'}) with n,m merge (n)-[r:part_holonym {strength:"+str(0)+"}]->(m) return r"
+                        graph.cypher.execute(q)
+                        part_holonym_names=part_holonym.lemma_names()
+                        for l in part_holonym_names:
+                            if l not in tokenized_corpus:
+                                tokenized_corpus.append(l)
+
+                    part_meronyms=synset.part_meronyms()
+                    for part_meronym in part_meronyms:
+                        part_meronym_definition=part_meronym.definition()
+                        q=r"merge(n:sense {definition:'"+part_meronym_definition.replace("'","\\\'")+"'}) with n merge(m:sense {definition:'"+synset.definition().replace("'","\\\'")+"'}) with n,m merge (n)-[r:part_meronym {strength:"+str(0)+"}]->(m) return r"
+                        graph.cypher.execute(q)
+                        part_meronym_names=part_meronym.lemma_names()
+                        for l in part_meronym_names:
+                            if l not in tokenized_corpus:
+                                tokenized_corpus.append(l)
+
+
+                    substance_holonyms=synset.substance_holonyms()
+                    for substance_holonym in substance_holonyms:
+                        substance_holonym_definition=substance_holonym.definition()
+                        q=r"merge(n:sense {definition:'"+substance_holonym_definition.replace("'","\\\'")+"'}) with n merge(m:sense {definition:'"+synset.definition().replace("'","\\\'")+"'}) with n,m merge (n)-[r:substance_holonym {strength:"+str(0)+"}]->(m) return r"
+                        graph.cypher.execute(q)
+                        substance_holonym_names=substance_holonym.lemma_names()
+                        for l in substance_holonym_names:
+                            if l not in tokenized_corpus:
+                                tokenized_corpus.append(l)
+
+
+                    substance_meronyms=synset.substance_meronyms()
+                    for substance_meronym in substance_meronyms:
+                        substance_meronym_definition=substance_meronym.definition()
+                        q=r"merge(n:sense {definition:'"+substance_meronym_definition.replace("'","\\\'")+"'}) with n merge(m:sense {definition:'"+synset.definition().replace("'","\\\'")+"'}) with n,m merge (n)-[r:substance_meronym {strength:"+str(0)+"}]->(m) return r"
+                        graph.cypher.execute(q)
+                        substance_meronym_names=substance_meronym.lemma_names()
+                        for l in substance_meronym_names:
+                            if l not in tokenized_corpus:
+                                tokenized_corpus.append(l)
+
+
+        print("Conversion completed.")
+    except:
+        traceback.print_exc()
+        print('Not able to insert the raw comment details. Is it important? ')
+                
+
+
+@app.route("/add_all_senses/<corpus_to_use>")
+def add_all_senses(corpus_to_use):
+    print("Converting")
+    graph=connect_to_neo()
+    print(' The graph '+str(graph))
+    dict_of_words={}
+    name =str(corpus_to_use)
+    package = "nltk.corpus"
+    try:
+        i=0
+        all_senses=wn.all_synsets()       
+        for synset in all_senses:
+            definition=synset.definition()
+            q=r"merge(n:sense {definition:'"+definition.replace("'","\\\'")+"'}) return n"
+            graph.cypher.execute(q)
+            if True:
+                if True:
+                    for lemma in synset.lemmas():
+                        q=r"merge(n:word {name:'"+lemma.name().replace("'","\\\'")+"'}) with n merge(m:sense {definition:'"+definition.replace("'","\\\'")+"'}) merge (n)-[r:synonym {strength:"+str(0)+"}]->(m) return r"
+                        graph.cypher.execute(q)
+                        if True:
+                            dforms=lemma.derivationally_related_forms()
+                            for dform in dforms:
+                                dform_word=dform.name()
+                                dform_definition=dform.synset().definition()
+                                q=r"merge(n:sense {definition:'"+dform_definition.replace("'","\\\'")+"'}) with n merge(m:word {name:'"+dform_word.replace("'","\\\'")+"'}) merge (m)-[r:synonym {strength:"+str(0)+"}]->(n) return r"
+                                graph.cypher.execute(q)
+                                q=r"match(n:word {name:'"+dform_word.replace("'","\\\'")+"'}) with n merge(m:word {name:'"+lemma.name().replace("'","\\\'")+"'}) merge (m)-[r:derivation {strength:"+str(0)+"}]->(n) return r"
+                                graph.cypher.execute(q)
+                                                    
+                        antonyms_of_lemma=lemma.antonyms()
+                        if len(antonyms_of_lemma) > 0:
+                            for ant in antonyms_of_lemma:
+                                ant_word=ant.name()
+                                ant_definition=ant.synset().definition()
+                                q=r"merge(n:sense {definition:'"+ant_definition.replace("'","\\\'")+"'}) with n merge(m:word {name:'"+ant_word.replace("'","\\\'")+"'}) merge (m)-[r:synonym {strength:"+str(0)+"}]->(n) return r"
+                                graph.cypher.execute(q)
+                                q=r"match(n:word {name:'"+ant_word.replace("'","\\\'")+"'}) with n merge(m:word {name:'"+lemma.name().replace("'","\\\'")+"'}) merge (m)-[r:antonym {strength:"+str(0)+"}]->(n) return r"
+                                graph.cypher.execute(q)
+                                
+                    hypernyms=synset.hypernyms()
+                    for hypernym in hypernyms:
+                        hypernym_definition=hypernym.definition()
+                        q=r"merge(n:sense {definition:'"+hypernym_definition.replace("'","\\\'")+"'}) with n merge(m:sense {definition:'"+synset.definition().replace("'","\\\'")+"'}) with n,m merge (n)-[r:hypernym {strength:"+str(0)+"}]->(m) return r"
+                        graph.cypher.execute(q)
+                        hypernym_names=hypernym.lemma_names()
+
+                    hyponym=synset.hyponyms()
+                    for hyponym in hyponyms:
+                        hyponym_definition=hyponym.definition()
+                        q=r"merge(n:sense {definition:'"+hyponym_definition.replace("'","\\\'")+"'}) with n merge(m:sense {definition:'"+synset.definition().replace("'","\\\'")+"'}) with n,m merge (m)-[r:hyponym {strength:"+str(0)+"}]->(n) return r"
+                        graph.cypher.execute(q)
+                        hypernym_names=hypernym.lemma_names()
+
+                    entailments=synset.entailments()
+                    for entailment in entailments:
+                        entailment_definition=entailment.definition()
+                        q=r"merge(n:sense {definition:'"+entailment_definition.replace("'","\\\'")+"'}) with n merge(m:sense {definition:'"+synset.definition().replace("'","\\\'")+"'}) with n,m merge (n)-[r:entailment {strength:"+str(0)+"}]->(m) return r"
+                        graph.cypher.execute(q)
+                        entailment_names=entailment.lemma_names()
+
+                    part_holonyms=synset.part_holonyms()
+                    for part_holonym in part_holonyms:
+                        part_holonym_definition=part_holonym.definition()
+                        q=r"merge(n:sense {definition:'"+part_holonym_definition.replace("'","\\\'")+"'}) with n merge(m:sense {definition:'"+synset.definition().replace("'","\\\'")+"'}) with n,m merge (n)-[r:part_holonym {strength:"+str(0)+"}]->(m) return r"
+                        graph.cypher.execute(q)
+                        part_holonym_names=part_holonym.lemma_names()
+
+                    part_meronyms=synset.part_meronyms()
+                    for part_meronym in part_meronyms:
+                        part_meronym_definition=part_meronym.definition()
+                        q=r"merge(n:sense {definition:'"+part_meronym_definition.replace("'","\\\'")+"'}) with n merge(m:sense {definition:'"+synset.definition().replace("'","\\\'")+"'}) with n,m merge (n)-[r:part_meronym {strength:"+str(0)+"}]->(m) return r"
+                        graph.cypher.execute(q)
+                        part_meronym_names=part_meronym.lemma_names()
+
+                    substance_holonyms=synset.substance_holonyms()
+                    for substance_holonym in substance_holonyms:
+                        substance_holonym_definition=substance_holonym.definition()
+                        q=r"merge(n:sense {definition:'"+substance_holonym_definition.replace("'","\\\'")+"'}) with n merge(m:sense {definition:'"+synset.definition().replace("'","\\\'")+"'}) with n,m merge (n)-[r:substance_holonym {strength:"+str(0)+"}]->(m) return r"
+                        graph.cypher.execute(q)
+                        substance_holonym_names=substance_holonym.lemma_names()
+
+
+                    substance_meronyms=synset.substance_meronyms()
+                    for substance_meronym in substance_meronyms:
+                        substance_meronym_definition=substance_meronym.definition()
+                        q=r"merge(n:sense {definition:'"+substance_meronym_definition.replace("'","\\\'")+"'}) with n merge(m:sense {definition:'"+synset.definition().replace("'","\\\'")+"'}) with n,m merge (n)-[r:substance_meronym {strength:"+str(0)+"}]->(m) return r"
+                        graph.cypher.execute(q)
+                        substance_meronym_names=substance_meronym.lemma_names()
+
+            
+        print("Conversion completed.")
+    except:
+        traceback.print_exc()
+        print('Not able to insert the raw comment details. Is it important? ')
                 
                 
             
 if __name__ == '__main__':
-    app.run(host='45.55.220.39',port=5000)
+    app.run(host='localhost',port=5001)
 
