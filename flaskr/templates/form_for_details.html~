@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<script src="http://ajax.googleapis.com/ajax/libs/angularjs/1.3.14/angular.min.js"></script>
+<head>
+  <title>Lookup wordnet</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="http://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css">
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
+  <script src="http://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/js/bootstrap.min.js"></script>
+</head>
+
+<body ng-app="wordnetapp" ng-controller="wordnetcontroller" >
+    <form action="{{ url_for('lookup_words') }}" method=post  >
+    <div class="container">
+        <div class="row" >
+            <div class="col-sm-1"> <label for="labelword">word:</label><input  type="text"   class="form-control" size=30 id="word" name="word"> </div>
+        </div>
+        <div class="row" >
+            <div class="col-sm-1">    <button type="submit" class="btn btn-default">Lookup</button> </div>
+            
+        </div>
+        <div class="row">
+            <div class="col-sm-20">
+                            <div class="panel panel-default">
+                <div class="panel-heading">{{details.word}}</div>
+                <div class="panel-body" ng-model="details" >
+                {% for sense in details.senses %}
+                   <div class="container">
+                        <hr>
+                       <div class="row"><b>Definition</b> {{sense.definition}}</div>
+                       <div class="row"><b>Synonyms:</b> 
+                            <div class="container"> {% for syn in sense.synonyms %} 
+                                <div class="row">
+                                    <div class="col-sm-4"><b>{{syn.word}}</b></div>
+                                    {% if syn.derivationally_related_forms|length >0 %} 
+                                        <div class="col-sm-4"><b>Derivational Forms: </b>
+                                        {% for dform in syn.derivationally_related_forms %} {{dform+' ' }} {% endfor %} 
+                                        </div>
+                                    {% endif %}  
+                                    {% if syn.example|length >0 %}  <div class="col-sm-4"><b>Examples: </b>{{syn.example}}</div> {% endif %}
+                                </div>     
+                            {% endfor %}
+                            </div>
+                            
+                       </div>
+                       <div class="row">{% if sense.part_of_speech %} <b>Part_of_speech</b> {{sense.part_of_speech}} {% endif %}
+                       </div>
+                       <div class="row">{% if sense.hypernym|length >0 %} <b>Hypernym:</b> {% for hypernym in sense.hypernym %} {{hypernym}}, {% endfor %}  {% endif %}
+                       </div>
+                       <div class="row">{% if sense.hyponyms|length >0 %} <b>Hyponyms:</b> {% for hyponym in sense.hyponyms %} {{hyponym}}, {% endfor %} {% endif %} 
+                       </div>
+                       <div class="row">{% if sense.entailments|length >0 %} <b>Entailments:</b> {% for ent in sense.entailments %} {{ent}}, {% endfor %} {% endif %}
+                       </div>
+                       <div class="row">{% if sense.antonyms|length >0 %} <b>Antonyms:</b> {% for ant in sense.antonyms %} {{ant}}, {% endfor %}  {% endif %}
+                       </div>
+                       <div class="row">{% if sense.part_holonyms|length >0 %} <b>Part Holonyms:</b> {% for pm in sense.part_holonyms %} {{pm}}, {% endfor %} {% endif %}
+                       </div>
+                       <div class="row">{% if sense.substance_holonyms|length >0 %}<b>Substance Holonyms:</b> {% for ant in sense.substance_holonyms %} {{ant}}, {% endfor %}  {% endif %}
+                       </div>
+                       <div class="row">{% if sense.part_meronyms|length >0 %} <b>Part Meronyms:</b> {% for ant in sense.part_meronyms %} {{ant}}, {% endfor %} {% endif %} 
+                       </div>
+                       <div class="row">{% if sense.substance_meronyms|length >0 %} <b>Substance Meronyms:</b> {% for ant in sense.substance_meronyms %} {{ant}}, {% endfor %} {% endif %}
+                       </div>
+                                              
+                       
+                   </div>               
+                {% endfor %}
+                </div>
+             </div>
+            </div>
+        </div>
+    </div>
+
+    
+    </form>
+  </body>
+</html>
