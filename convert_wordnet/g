@@ -1,4 +1,0 @@
-import sys
-sys.path.append('/home/snehal/www/flask_project')
-import __init__ as init
-init.convert('brown')
